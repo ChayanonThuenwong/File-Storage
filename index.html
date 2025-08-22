@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>File Storage</title>
+  <style>
+    body{background:#0f172a;color:#e5e7eb;font-family:sans-serif;margin:0}
+    header{padding:12px 20px;background:#111827;position:sticky;top:0;z-index:10}
+    h1{margin:0;font-size:1.3rem}
+    .toolbar{display:flex;gap:10px;margin-top:10px;flex-wrap:wrap}
+    .btn{background:#1f2937;color:white;border:none;padding:8px 12px;border-radius:8px;cursor:pointer}
+    .btn.accent{background:#22d3ee;color:black}
+    .btn.danger{background:#f87171}
+    .search input{padding:8px;border-radius:8px;border:none}
+    .drop{border:2px dashed #22d3ee;border-radius:12px;padding:20px;text-align:center;margin-top:16px}
+    .drop.dragover{background:#164e63}
+    .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin-top:16px}
+    .card{background:#1f2937;border-radius:10px;overflow:hidden;display:flex;flex-direction:column}
+    .preview{background:#0a0f1f;height:160px;display:flex;align-items:center;justify-content:center;overflow:hidden}
+    .preview img{max-width:100%;max-height:100%}
+    .preview video,.preview audio{width:100%;height:160px}
+    .preview iframe{width:100%;height:160px;border:0}
+    .preview .icon{width:60px;height:60px;border-radius:12px;display:grid;place-items:center;background:#0b1224}
+    .meta{padding:10px;display:grid;gap:6px}
+    .name{font-weight:600;word-break:break-word}
+    .sub{font-size:.85rem;color:#9ca3af}
+    .row{display:flex;justify-content:space-between;align-items:center}
+    .chip{padding:4px 8px;border-radius:999px;background:#0b1120;border:1px solid #333;cursor:pointer;font-size:.85rem}
+    .chip.active{background:#22d3ee;color:black}
+    .categories{margin-top:10px;display:flex;gap:8px;flex-wrap:wrap}
+    .actions{display:flex;gap:8px}
+    a.link{color:#93c5fd;font-size:.85rem;text-decoration:none}
+  </style>
+</head>
+<body>
+<header>
+  <h1>Chayanon Thuenwong - File Storage</h1>
+  <div class="toolbar">
+    <label class="btn accent" for="fileInput">＋ Upload</label>
+    <button class="btn" id="newCatBtn">＋ Create Categories</button>
+    <button class="btn danger" id="clearAllBtn">Delete all</button>
+    <div class="search"><input id="query" placeholder="search..." /></div>
+  </div>
+  <div class="categories" id="catList"></div>
+</header>
+
+<main style="padding:20px">
+  <input id="fileInput" type="file" multiple />
+  <div id="drop" class="drop">Drop your file here</div>
+  <div id="grid" class="grid"></div>
+</main>
+
+<script>
+/* ---------- IndexedDB ---------- */
+const DB_NAME="file_showcase_db3",STORE="files",CAT_STORE="cats";let db;
+function openDB(){return new Promise((res,rej)=>{let r=indexedDB.open(DB_NAME,1);
+  r.onupgradeneeded=e=>{let d=e.target.result;
+    if(!d.objectStoreNames.contains(STORE))d.createObjectStore(STORE,{keyPath:"id",autoIncrement:!0});
+    if(!d.objectStoreNames.contains(CAT_STORE))d.createObjectStore(CAT_STORE,{keyPath:"id",autoIncrement:!0});
+  };
+  r.onsuccess=()=>{db=r.result;res(db)};r.onerror=()=>rej(r.error);})}
+function tx(store,mode="readonly"){return db.transaction(store,mode).objectStore(store)}
+const addFile=rec=>new Promise(r=>tx(STORE,"readwrite").add(rec).onsuccess=()=>r());
+const getFiles=()=>new Promise(r=>{let q=tx(STORE).getAll();q.onsuccess=()=>r(q.result)});
+const delFile=id=>new Promise(r=>tx(STORE,"readwrite").delete(id).onsuccess=()=>r());
+const clearFiles=()=>new Promise(r=>tx(STORE,"readwrite").clear().onsuccess=()=>r());
+const addCat=name=>new Promise(r=>tx(CAT_STORE,"readwrite").add({name}).onsuccess=()=>r());
+const getCats=()=>new Promise(r=>{let q=tx(CAT_STORE).getAll();q.onsuccess=()=>r(q.result)});
+
+/* ---------- DOM refs ---------- */
+const input=document.querySelector("#fileInput"),
+      drop=document.querySelector("#drop"),
+      grid=document.querySelector("#grid"),
+      query=document.querySelector("#query"),
+      newCatBtn=document.querySelector("#newCatBtn"),
+      catList=document.querySelector("#catList"),
+      clearAllBtn=document.querySelector("#clearAllBtn");
+let currentCat="all";
+
+/* ---------- UI helpers ---------- */
+function fmtBytes(b){if(!b)return"0B";const k=1024,s=["B","KB","MB","GB"],i=Math.floor(Math.log(b)/Math.log(k));return (b/Math.pow(k,i)).toFixed(1)+" "+s[i]}
+function previewEl(f){const url=URL.createObjectURL(f.blob);if(f.type.startsWith("image/")){let i=new Image();i.src=url;return i}
+if(f.type.startsWith("video/")){let v=document.createElement("video");v.src=url;v.controls=1;return v}
+if(f.type.startsWith("audio/")){let a=document.createElement("audio");a.src=url;a.controls=1;return a}
+if(f.type==="application/pdf"){let m=document.createElement("iframe");m.src=url;return m}
+if(f.type.startsWith("text/")){let m=document.createElement("iframe");m.src=url;return m}
+let d=document.createElement("div");d.className="icon";d.textContent=(f.name.split(".").pop()||"FILE").toUpperCase();return d}
+function card(f){let el=document.createElement("div");el.className="card";
+  let p=document.createElement("div");p.className="preview";p.appendChild(previewEl(f));
+  let m=document.createElement("div");m.className="meta";
+  let nm=document.createElement("div");nm.className="name";nm.textContent=f.name;
+  let sb=document.createElement("div");sb.className="sub";sb.textContent=`${fmtBytes(f.size)} • ${f.type||"?"} • หมวด: ${f.cat||"-"}`;
+  let row=document.createElement("div");row.className="row";
+  let acts=document.createElement("div");acts.className="actions";
+  let a=document.createElement("a");a.className="link";a.href=URL.createObjectURL(f.blob);a.download=f.name;a.textContent="ดาวน์โหลด";
+  let del=document.createElement("button");del.className="btn danger";del.textContent="ลบ";
+  del.onclick=async()=>{await delFile(f.id);render()};
+  acts.append(a,del);row.appendChild(acts);
+  m.append(nm,sb,row);el.append(p,m);return el}
+
+/* ---------- Render ---------- */
+async function render(){let q=query.value.toLowerCase();let fs=await getFiles();
+  fs=fs.filter(f=>(currentCat==="all"||f.cat===currentCat)&&f.name.toLowerCase().includes(q));
+  grid.innerHTML="";fs.sort((a,b)=>b.createdAt-a.createdAt).forEach(f=>grid.appendChild(card(f)));renderCats()}
+async function renderCats(){let cats=await getCats();catList.innerHTML="";
+  let allBtn=document.createElement("div");allBtn.className="chip"+(currentCat==="all"?" active":"");allBtn.textContent="ทั้งหมด";
+  allBtn.onclick=()=>{currentCat="all";render()};catList.appendChild(allBtn);
+  cats.forEach(c=>{let chip=document.createElement("div");chip.className="chip"+(currentCat===c.name?" active":"");chip.textContent=c.name;
+    chip.onclick=()=>{currentCat=c.name;render()};catList.appendChild(chip)})}
+
+/* ---------- Events ---------- */
+async function handleFiles(fs){let cat=currentCat==="all"?prompt("ใส่ชื่อหมวด (หรือเว้นว่าง)")||null:currentCat;
+  for(let f of fs){await addFile({name:f.name,type:f.type,size:f.size,blob:f,cat,createdAt:Date.now()})}
+  render()}
+input.onchange=e=>handleFiles(e.target.files);
+["dragenter","dragover"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add("dragover")}));
+["dragleave","drop"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove("dragover")}));
+drop.ondrop=e=>{e.preventDefault();drop.classList.remove("dragover");handleFiles(e.dataTransfer.files)};
+query.oninput=render;
+newCatBtn.onclick=async()=>{let n=prompt("ชื่อหมวดหมู่ใหม่");if(n)await addCat(n);renderCats()};
+clearAllBtn.onclick=async()=>{if(confirm("ลบไฟล์ทั้งหมด?")){await clearFiles();render()}};
+
+/* ---------- Init ---------- */
+openDB().then(render);
+</script>
+</body>
+</html>
